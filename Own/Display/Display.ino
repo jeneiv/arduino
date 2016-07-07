@@ -1,3 +1,8 @@
+//
+// Based on:
+// https://blog.3d-logic.com/2015/01/10/using-a-tm1638-based-board-with-arduino/
+//
+
 const int stb = 8;
 const int clk = 9;
 const int dio = 10;
