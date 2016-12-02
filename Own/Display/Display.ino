@@ -3,9 +3,13 @@
 // https://blog.3d-logic.com/2015/01/10/using-a-tm1638-based-board-with-arduino/
 //
 
-const int stb = 8;
-const int clk = 9;
-const int dio = 10;
+// Display PINs
+const int DisplayStb = 8;
+const int DisplayClk = 9;
+const int DisplayDio = 10;
+// DistanceSensor PINs
+const int DistanceTrigPin = 2;
+const int DistanceEchoPin = 4;
 
 const uint8_t numberValues[10] = {0x3f, 0x06, 0x5b, 0x4f, 0x66, 0x6d, 0x7d, 0x07, 0x7f, 0x6f};
 const uint8_t dashValue = 0x40;
@@ -25,31 +29,51 @@ enum LedState {
 
 
 void setup() {
-  pinMode(stb, OUTPUT);
-  pinMode(clk, OUTPUT);
-  pinMode(dio, OUTPUT);
+  pinMode(DisplayStb, OUTPUT);
+  pinMode(DisplayClk, OUTPUT);
+  pinMode(DisplayDio, OUTPUT);
 
-  Serial.begin(115200);
-  
+  pinMode(DistanceTrigPin, OUTPUT);
+  pinMode(DistanceEchoPin, INPUT);
+
   turnOn(low);
   resetDisplay();
 
-  setDigit(0, numberValue(0));
-  setDigit(2, numberValue(1, true));
-  setDigit(4, numberValue(2));
-  setDigit(6, numberValue(3, false));
-  setDigit(8, numberValue(4, true));
-  setDigit(10, numberValue(5, false));
-  setDigit(12, numberValue(6));
-  setDigit(14, emptyValue);
+  for (int i = 0; i < 15; i = i + 2) {
+    setDigit(i, emptyValue);
+  }
+
+  /*
+  setLedState(1, on);
+  setLedState(3, on);
+  setLedState(5, on);
+  setLedState(7, on);
+  setLedState(9, on);
+  setLedState(11, on);
+  setLedState(13, on);
+  setLedState(15, on);
+  */
+
+  Serial.begin(115200);
+
 }
 
 void loop() {
+  /*
+  // Use These for button handling if needed in the future
   uint8_t buttons = readButtons();
   handleButtonInfo(buttons);
 
   delay(300);
+  */
+
+  handleDistanceSensor();
+  delay(100);
 }
+
+// -----------------------------
+// Display Methods
+// -----------------------------
 
 void handleButtonInfo(uint8_t buttons) {
   for(uint8_t position = 0; position < 8; position++) {
@@ -66,18 +90,18 @@ void handleButtonInfo(uint8_t buttons) {
 
 uint8_t readButtons(void) {
   uint8_t buttons = 0;
-  digitalWrite(stb, LOW);
-  shiftOut(dio, clk, LSBFIRST, 0x42); // Command for input
+  digitalWrite(DisplayStb, LOW);
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, 0x42); // Command for input
  
-  pinMode(dio, INPUT);
+  pinMode(DisplayDio, INPUT);
 
   for (uint8_t i = 0; i < 4; i++) {
-    uint8_t value = shiftIn(dio, clk, LSBFIRST) << i;
+    uint8_t value = shiftIn(DisplayDio, DisplayClk, LSBFIRST) << i;
     buttons = buttons | value;
   }
  
-  pinMode(dio, OUTPUT);
-  digitalWrite(stb, HIGH);
+  pinMode(DisplayDio, OUTPUT);
+  digitalWrite(DisplayStb, HIGH);
   return buttons;
 }
 uint8_t numberValue(int index) {
@@ -102,12 +126,12 @@ uint8_t numberValue(int index, bool isDotOn) {
 
 void resetDisplay() {
   sendCommand(0x40); // set auto increment mode
-  digitalWrite(stb, LOW);
-  shiftOut(dio, clk, LSBFIRST, 0xc0);   // set starting address to 0
+  digitalWrite(DisplayStb, LOW);
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, 0xc0);   // set starting address to 0
   for(uint8_t i = 0; i < 16; i++) {
-    shiftOut(dio, clk, LSBFIRST, 0x00);
+    shiftOut(DisplayDio, DisplayClk, LSBFIRST, 0x00);
   }
-  digitalWrite(stb, HIGH);
+  digitalWrite(DisplayStb, HIGH);
 }
 
 void setDigit(int position, uint8_t value) {
@@ -115,10 +139,10 @@ void setDigit(int position, uint8_t value) {
 
   uint8_t cPos = (12 << 4) | position;
   
-  digitalWrite(stb, LOW);
-  shiftOut(dio, clk, LSBFIRST, cPos); // last digit
-  shiftOut(dio, clk, LSBFIRST, value);
-  digitalWrite(stb, HIGH);
+  digitalWrite(DisplayStb, LOW);
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, cPos); // last digit
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, value);
+  digitalWrite(DisplayStb, HIGH);
 }
 
 void setLedState(int position, LedState state) {
@@ -130,10 +154,10 @@ void setLedState(int position, LedState state) {
 }
 
 void setLedState(uint8_t position, LedState state) {
-  digitalWrite(stb, LOW);
-  shiftOut(dio, clk, LSBFIRST, position);
-  shiftOut(dio, clk, LSBFIRST, state == on ? 0x01 : 0x00);
-  digitalWrite(stb, HIGH);
+  digitalWrite(DisplayStb, LOW);
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, position);
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, state == on ? 0x01 : 0x00);
+  digitalWrite(DisplayStb, HIGH);
 }
 
 void turnOn(Brightness brightness) {
@@ -145,9 +169,48 @@ void turnOff() {
 }
 
 void sendCommand(uint8_t value) {
-  pinMode(dio, OUTPUT);
-  digitalWrite(stb, LOW);
-  shiftOut(dio, clk, LSBFIRST, value);
-  digitalWrite(stb, HIGH);
+  pinMode(DisplayDio, OUTPUT);
+  digitalWrite(DisplayStb, LOW);
+  shiftOut(DisplayDio, DisplayClk, LSBFIRST, value);
+  digitalWrite(DisplayStb, HIGH);
 }
 
+// -----------------------------
+// Distance Sensor Methods
+// -----------------------------
+
+void handleDistanceSensor() {
+  long distanceInCM = distanceSensorCM();
+
+  for (int i = 0; i < 8; ++i) {
+    int value = (int)distanceInCM / (int)pow(10, i) % 10;
+    setDigit(14 - (i * 2), value == 0 ? emptyValue : numberValue(value));
+  }
+
+}
+
+long distanceSensorCM() {
+  long duration, cm;
+  
+  digitalWrite(DistanceTrigPin, LOW);
+  delayMicroseconds(2);
+  digitalWrite(DistanceTrigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(DistanceTrigPin, LOW);
+
+  duration = pulseIn(DistanceEchoPin, HIGH);
+
+  cm = microsecondsToCentimeters(duration);
+
+  Serial.print(cm);
+  Serial.println("cm");
+
+  return cm;
+}
+
+long microsecondsToCentimeters(long microseconds) {
+  // The speed of sound is 340 m/s or 29 microseconds per centimeter.
+  // The ping travels out and back, so to find the distance of the
+  // object we take half of the distance travelled.
+  return microseconds / 29 / 2;
+}
